@@ -75,6 +75,22 @@ describe("push", () => {
     await expect(push(ctx, config, "repo", remote)).rejects.toThrow(/no verified dry run/);
   });
 
+  it("leaves refs/pull alone and does not count them", async () => {
+    const pull = git(remote, ["rev-parse", "refs/pull/1/head"]);
+    const result = await dryRun(ctx, config, "repo", remote);
+    expect(result.before.matching).toBe(4);
+    await push(ctx, config, "repo", remote);
+    expect(git(remote, ["rev-parse", "refs/pull/1/head"])).toBe(pull);
+  });
+
+  it("finishes a push that was partly done", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    const mirror = repoPaths(ctx.cache, "repo").mirror;
+    git(mirror, ["push", "--quiet", "--force", remote, "refs/heads/feature:refs/heads/feature"]);
+    await push(ctx, config, "repo", remote);
+    expect(remaining(await scan(run, remote, OLD), OLD)).toBe(0);
+  });
+
   it("refuses when the remote moved since the dry run", async () => {
     await dryRun(ctx, config, "repo", remote);
     commitAs(work, "tester@example.com", "late commit");

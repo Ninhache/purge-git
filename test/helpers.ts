@@ -45,5 +45,10 @@ export function fixture(root: string): { work: string; remote: string } {
   commitAs(work, "old@example.com", "on a branch");
   git(work, ["switch", "--quiet", "main"]);
   git(root, ["clone", "--quiet", "--bare", work, remote]);
+  git(work, ["switch", "--quiet", "-c", "contributor"]);
+  commitAs(work, "old@example.com", "pull request only");
+  git(work, ["push", "--quiet", remote, "contributor:refs/pull/1/head"]);
+  git(work, ["switch", "--quiet", "main"]);
+  git(work, ["branch", "--quiet", "-D", "contributor"]);
   return { work, remote };
 }

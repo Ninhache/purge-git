@@ -40,13 +40,28 @@ export function parseRefs(out: string): Refs {
   return refs;
 }
 
+export function refsBetween(current: Refs, before: Refs, after: Refs): boolean {
+  const keys = Object.keys(current);
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every((key) => current[key] === before[key] || current[key] === after[key])
+  );
+}
+
 export function sameRefs(a: Refs, b: Refs): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
 export async function hasCommits(runner: Run, dir: string): Promise<boolean> {
-  const result = await runner("git", ["-C", dir, "rev-list", "--all", "--max-count=1"]);
+  const result = await runner("git", [
+    "-C",
+    dir,
+    "rev-list",
+    "--branches",
+    "--tags",
+    "--max-count=1",
+  ]);
   return result.code === 0 && result.stdout.trim() !== "";
 }
 
@@ -92,7 +107,8 @@ export async function scan(runner: Run, dir: string, oldEmails: string[]): Promi
       "-C",
       dir,
       "log",
-      "--all",
+      "--branches",
+      "--tags",
       "--topo-order",
       "--reverse",
       "--format=%H%x00%P%x00%ae%x00%ce%x00%G?%x00%B%x1e",

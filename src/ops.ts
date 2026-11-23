@@ -10,6 +10,7 @@ import {
   messagesFile,
   mirrorClone,
   type Refs,
+  refsBetween,
   refusalOf,
   remaining,
   remoteRefs,
@@ -37,14 +38,22 @@ export interface Marker {
   at: string;
 }
 
-export async function freshMirror(ctx: Context, repo: string, url: string): Promise<string> {
+export async function freshClone(
+  ctx: Context,
+  repo: string,
+  url: string,
+  kind: "mirror" | "inventory",
+): Promise<string> {
   await mkdir(ctx.cache, { recursive: true, mode: 0o700 });
   await chmod(ctx.cache, 0o700);
   const paths = repoPaths(ctx.cache, repo);
-  await rm(paths.root, { recursive: true, force: true });
-  await mkdir(paths.root, { mode: 0o700 });
-  await mirrorClone(ctx.run, url, paths.mirror);
-  return paths.mirror;
+  await mkdir(paths.root, { recursive: true, mode: 0o700 });
+  await chmod(paths.root, 0o700);
+  const target = paths[kind];
+  await rm(target, { recursive: true, force: true });
+  if (kind === "mirror") await rm(paths.marker, { force: true });
+  await mirrorClone(ctx.run, url, target);
+  return target;
 }
 
 export interface DryRunResult {
@@ -60,7 +69,7 @@ export async function dryRun(
   url: string,
 ): Promise<DryRunResult> {
   const paths = repoPaths(ctx.cache, repo);
-  await freshMirror(ctx, repo, url);
+  await freshClone(ctx, repo, url, "mirror");
   const preRefs = await localRefs(ctx.run, paths.mirror);
   const before = await scan(ctx.run, paths.mirror, config.oldEmails);
   if (before.matching === 0 && before.matchingTags === 0) {
@@ -148,7 +157,7 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
       EXIT_REMAINING,
     );
   }
-  if (!sameRefs(await remoteRefs(ctx.run, url), marker.preRefs)) {
+  if (!refsBetween(await remoteRefs(ctx.run, url), marker.preRefs, marker.postRefs)) {
     throw new PurgeError(
       `${repo}: the remote moved since the dry run (someone pushed). Run the dry run again. Nothing pushed.`,
     );
@@ -162,7 +171,7 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
       other: "The push failed.",
     } as const;
     throw new PurgeError(
-      `${repo}: ${reasons[refusalOf(outcome.output)]}\n${outcome.output.trim()}`,
+      `${repo}: ${reasons[refusalOf(outcome.output)]} Refs that were not refused may already be pushed: running push again is safe.\n${outcome.output.trim()}`,
     );
   }
   await rename(paths.marker, `${paths.root}/pushed.json`);
