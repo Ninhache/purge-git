@@ -24,6 +24,7 @@ export interface RepoPaths {
   mailmap: string;
   messages: string;
   marker: string;
+  backups: string;
 }
 
 export function repoPaths(cache: string, repo: string): RepoPaths {
@@ -35,6 +36,7 @@ export function repoPaths(cache: string, repo: string): RepoPaths {
     mailmap: join(root, "mailmap"),
     messages: join(root, "messages"),
     marker: join(root, "verified.json"),
+    backups: join(root, "backups"),
   };
 }
 

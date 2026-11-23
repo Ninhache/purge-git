@@ -44,8 +44,8 @@ read it.
 | Command                                  | What it does                                                                                                                                                                                                                                                                                                                                           |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `purge-git inventory [--repo <name>]`    | Read-only. Searches GitHub for commits with each old address, mirror-clones your own repos (not forks, not archived) and counts matching commits and tags. Prints default branch, protections, rulesets, visibility, open PRs, releases and how many signed commits would lose their signature. Lists repos owned by others where an address shows up. |
-| `purge-git dry-run [repo]`               | Without a name, lists the repos the last `inventory` found and dry-runs the ones you tick. Rewrites a fresh mirror clone (authors, committers, commit and tag messages, taggers), prints the before/after counts per address and proves none is left. Nothing is pushed.                                                                               |
-| `purge-git push <repo> --confirm <repo>` | Force-pushes a verified dry run: every branch, then every tag. Refuses when the remote moved since the dry run. Without `--confirm`, asks you to type the name.                                                                                                                                                                                        |
+| `purge-git dry-run [repo]`               | Without a name, lists the repos the last `inventory` found and dry-runs the ones you tick. Rewrites a fresh mirror clone (authors, committers, commit and tag messages, taggers), prints the before/after counts per address and proves none is left. Saves the original history as a bundle first. Nothing is pushed.                                 |
+| `purge-git push <repo> --confirm <repo>` | Force-pushes a verified dry run: every branch, then every tag. Refuses when the remote moved since the dry run or the backup is gone. Without `--confirm`, asks you to type the name.                                                                                                                                                                  |
 | `purge-git verify`                       | Runs the GitHub search again and reports what is left.                                                                                                                                                                                                                                                                                                 |
 
 Clones live in `~/.cache/purge-git` (mode 0700; `PURGE_GIT_CACHE` overrides it).
@@ -55,6 +55,9 @@ Exit codes: `0` ok, `1` error, `2` old addresses still present.
 
 - Every rewritten commit, and every commit after it, gets a new SHA: links to old commits and open PRs break,
   and signatures on those commits are dropped. `inventory` counts them.
+- Each dry run saves the original history to `~/.cache/purge-git/<repo>/backups/<time>.bundle` (mode 0600)
+  and never deletes one. To restore: `git clone --mirror <bundle> restore.git`, then from `restore.git`
+  `git push --force --all <remote>` and `git push --force --tags <remote>`.
 - A push refused by a branch protection or a ruleset stops with what to lift. The tool never changes one.
 - Turn on GitHub's "Block command line pushes that expose my email": a push that still contains a private
   address is refused (GH007).
