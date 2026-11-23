@@ -33,14 +33,13 @@ first. It writes `~/.config/purge-git/config.json` (mode 0600; `PURGE_GIT_CONFIG
 {
   "owner": "your-login",
   "identity": { "name": "Your Name", "email": "12345+your-login@users.noreply.github.com" },
-  "oldEmails": ["old@example.com"],
-  "orgs": ["your-org"]
+  "oldEmails": ["old@example.com"]
 }
 ```
 
 `init --template` writes that template to fill in by hand instead, and `init --force` replaces a config you
 already filled in. The addresses stay in that file: never commit it. The tool refuses it when other users can
-read it. `orgs` is optional.
+read it. Add `"orgs": ["your-org"]` to rewrite an organization's repos too (`init` does it for the ones you tick).
 
 An org repo is named `org/name` in every command (`purge-git dry-run your-org/app`); your own repos keep their
 bare name. Pushing one rewrites history every other member shares: they all have to clone it again.
