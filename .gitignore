@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tgz
+.claude/settings.local.json
+config.json
+*.mailmap
+mailmap

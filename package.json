@@ -1,0 +1,50 @@
+{
+  "name": "@ninhache/purge-git",
+  "version": "0.1.0",
+  "description": "Rewrite old email addresses out of the history of your GitHub repositories, one approved repo at a time",
+  "license": "MIT",
+  "author": "Ninhache",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ninhache/purge-git.git"
+  },
+  "type": "module",
+  "bin": {
+    "purge-git": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "scan-emails": "node scripts/scan-emails.mjs"
+  },
+  "dependencies": {
+    "citty": "^0.2.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.8",
+    "@types/node": "^22.0.0",
+    "tsup": "^9.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
