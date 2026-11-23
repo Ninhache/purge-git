@@ -44,6 +44,18 @@ export function parseRefs(out: string): Refs {
   return refs;
 }
 
+export interface RefChange {
+  ref: string;
+  from?: string;
+  to: string;
+}
+
+export function pushPlan(remote: Refs, local: Refs): RefChange[] {
+  return Object.keys(local)
+    .sort()
+    .map((ref) => ({ ref, from: remote[ref], to: local[ref] as string }));
+}
+
 export function refsBetween(current: Refs, before: Refs, after: Refs): boolean {
   const keys = Object.keys(current);
   return (

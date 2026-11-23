@@ -134,6 +134,30 @@ describe("push", () => {
     expect(git(remote, ["for-each-ref"])).toBe(remoteBefore);
   });
 
+  it("should change nothing on the remote and list every ref when pushing as a dry run", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    const remoteBefore = git(remote, ["for-each-ref"]);
+    const mirror = repoPaths(ctx.cache, "repo").mirror;
+    const main = git(mirror, ["rev-parse", "--short=7", "refs/heads/main"]).trim();
+    await push(ctx, config, "repo", remote, { dryRun: true });
+    expect(git(remote, ["for-each-ref"])).toBe(remoteBefore);
+    const plan = logs.join("\n");
+    expect(plan).toMatch(new RegExp(`refs/heads/main +[0-9a-f]{7} -> ${main} \\(force\\)`));
+    expect(plan).toMatch(/refs\/heads\/feature/);
+    expect(plan).toMatch(/refs\/tags\/v1/);
+    await push(ctx, config, "repo", remote);
+    expect(remaining(await scan(run, remote, OLD), OLD)).toBe(0);
+  });
+
+  it("should refuse a dry-run push when the remote moved", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    commitAs(work, "tester@example.com", "late commit");
+    git(work, ["push", "--quiet", remote, "main"]);
+    await expect(push(ctx, config, "repo", remote, { dryRun: true })).rejects.toThrow(
+      /remote moved/,
+    );
+  });
+
   it("refuses another remote than the one of the dry run", async () => {
     await dryRun(ctx, config, "repo", remote);
     await expect(push(ctx, config, "repo", join(root, "other.git"))).rejects.toThrow(
