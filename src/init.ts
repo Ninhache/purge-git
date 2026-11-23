@@ -38,7 +38,7 @@ export async function discoverConfig(deps: InitDeps): Promise<Config> {
   ctx.log(`Read ${searched.read} of the ${searched.total} commits GitHub links to ${user.login}.`);
   const orgs = await chosenOrgs(deps);
   const repos: { owner: string; name: string; label: string }[] = [];
-  for (const owner of [user.login, ...orgs]) {
+  for (const owner of [user.login, ...orgs.picked]) {
     for (const repo of await ownedRepos(ctx.run, owner)) {
       repos.push({
         owner,
@@ -66,19 +66,20 @@ export async function discoverConfig(deps: InitDeps): Promise<Config> {
   const picked = await deps.pickEmails(found);
   if (picked === null) throw new PurgeError("Cancelled. No config written.");
   if (picked.length === 0) throw new PurgeError("No address picked. No config written.");
-  return { owner: user.login, identity, oldEmails: picked, orgs };
+  const config: Config = { owner: user.login, identity, oldEmails: picked };
+  return orgs.all ? config : { ...config, orgs: orgs.picked };
 }
 
-async function chosenOrgs(deps: InitDeps): Promise<string[]> {
+async function chosenOrgs(deps: InitDeps): Promise<{ picked: string[]; all: boolean }> {
   const orgs = await userOrgs(deps.ctx.run);
   if (orgs === null) {
     deps.ctx.log(
       "Skipped your organizations: gh needs the read:org scope (`gh auth refresh -h github.com -s read:org`).",
     );
-    return [];
+    return { picked: [], all: true };
   }
-  if (orgs.length === 0) return [];
+  if (orgs.length === 0) return { picked: [], all: true };
   const picked = await deps.pickOrgs(orgs);
   if (picked === null) throw new PurgeError("Cancelled. No config written.");
-  return picked;
+  return { picked, all: picked.length === orgs.length };
 }

@@ -18,7 +18,7 @@ function file(content: unknown, mode: number): string {
 
 describe("config", () => {
   it("loads a private, valid config", async () => {
-    expect(await loadConfig(file(valid, 0o600))).toEqual({ ...valid, orgs: [] });
+    expect(await loadConfig(file(valid, 0o600))).toEqual(valid);
   });
 
   it("should refuse an org that is not a GitHub name when loading", async () => {

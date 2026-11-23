@@ -60,5 +60,6 @@ export function pickOrgs(orgs: string[]): Promise<string[] | null> {
   return pick(
     "Which organizations should be rewritten too? Only repos you can push to are used. Other members' clones will break.",
     orgs.map((org) => ({ value: org, label: org })),
+    orgs,
   );
 }

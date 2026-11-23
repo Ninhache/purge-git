@@ -27,7 +27,7 @@ import {
 import { cacheRoot, configPath, sshRemote } from "./paths";
 import { confirmLocal, pick, pickEmails, pickOrgs } from "./prompt";
 import { table } from "./table";
-import { labelOf, owners, type Target, targetOf } from "./target";
+import { labelOf, owners, type Target, targetOf, withOrgs } from "./target";
 import { CLI_VERSION } from "./version";
 
 const FIELDS: SearchField[] = ["author-email", "committer-email"];
@@ -50,13 +50,14 @@ function context(): Context {
 }
 
 async function setup(): Promise<{ ctx: Context; config: Config }> {
-  const config = await loadConfig(configPath());
+  const loaded = await loadConfig(configPath());
   if (!(await filterRepoVersion(run))) {
     throw new PurgeError(
       "git filter-repo is missing. Install it: `pacman -S git-filter-repo`, `brew install git-filter-repo` or `pipx install git-filter-repo`.",
     );
   }
-  return { ctx: context(), config };
+  const ctx = context();
+  return { ctx, config: await withOrgs(run, loaded, ctx.log) };
 }
 
 async function writableRepo(config: Config, value: string): Promise<Target> {

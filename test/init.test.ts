@@ -178,6 +178,23 @@ describe("discoverConfig with organizations", () => {
     expect(logs).toContain("Reading acme/app...");
   });
 
+  it("should leave orgs out of the config when every org is ticked", async () => {
+    const { runner } = fakeGh(remote, {
+      userScope: false,
+      items: [searchItem("a", "x@example.com")],
+      orgs: ["acme", "other"],
+    });
+    ctx = context(runner);
+    const config = await discoverConfig({
+      ctx,
+      sleep: async () => undefined,
+      pickOrgs: async (orgs) => orgs,
+      confirmLocal: async () => false,
+      pickEmails: async (found) => found.map((candidate) => candidate.email),
+    });
+    expect("orgs" in config).toBe(false);
+  });
+
   it("should skip organizations when gh lacks the read:org scope", async () => {
     const { runner } = fakeGh(remote, {
       userScope: false,
@@ -194,7 +211,7 @@ describe("discoverConfig with organizations", () => {
       confirmLocal: async () => false,
       pickEmails: async (found) => found.map((candidate) => candidate.email),
     });
-    expect(config.orgs).toEqual([]);
+    expect(config.orgs).toBeUndefined();
     expect(logs.join("\n")).toMatch(/-s read:org/);
   });
 });

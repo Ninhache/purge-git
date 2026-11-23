@@ -12,7 +12,7 @@ export const configSchema = z.object({
     email: z.email(),
   }),
   oldEmails: z.array(z.email()).min(1),
-  orgs: z.array(z.string().regex(REPO_NAME)).default([]),
+  orgs: z.array(z.string().regex(REPO_NAME)).optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

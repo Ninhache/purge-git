@@ -1,5 +1,7 @@
 import { type Config, isRepoName } from "./config";
 import { PurgeError } from "./errors";
+import type { Run } from "./exec";
+import { userOrgs } from "./github";
 
 export interface Target {
   owner: string;
@@ -17,9 +19,7 @@ export function targetOf(config: Config, value: string): Target {
   if (parts.length > 2 || !owner || !name || !isRepoName(owner) || !isRepoName(name)) {
     throw new PurgeError(`Not a repository name: ${value}`);
   }
-  const known = [config.owner, ...config.orgs].find(
-    (candidate) => candidate.toLowerCase() === owner.toLowerCase(),
-  );
+  const known = owners(config).find((candidate) => candidate.toLowerCase() === owner.toLowerCase());
   if (!known) {
     throw new PurgeError(
       `${owner} is neither you nor one of the orgs in your config. Add it to "orgs" first.`,
@@ -29,5 +29,20 @@ export function targetOf(config: Config, value: string): Target {
 }
 
 export function owners(config: Config): string[] {
-  return [config.owner, ...config.orgs];
+  return [config.owner, ...(config.orgs ?? [])];
+}
+
+export async function withOrgs(
+  runner: Run,
+  config: Config,
+  log: (line: string) => void,
+): Promise<Config> {
+  if (config.orgs) return config;
+  const orgs = await userOrgs(runner);
+  if (orgs === null) {
+    log(
+      "Your organizations are left out: gh needs the read:org scope (`gh auth refresh -h github.com -s read:org`).",
+    );
+  }
+  return { ...config, orgs: orgs ?? [] };
 }
