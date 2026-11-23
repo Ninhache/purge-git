@@ -22,7 +22,7 @@ Work dir: `~/.cache/purge-git` (override: `PURGE_GIT_CACHE`), mode 0700, one mir
 
 | Command                        | Effect                                                                                                                                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `inventory`                    | Read-only. Lists owned repos (not forks, not archived), runs the commit search per old address, mirror-clones each owned repo, counts matches locally, prints a table. Lists repos owned by others that the search found. |
+| `inventory`                    | Read-only. Lists owned repos (not forks, not archived), runs the commit search per old address, mirror-clones each owned repo into its own `inventory.git` (the dry-run clone is kept), counts matches locally, prints a table. A repo that fails is reported and the others go on. Lists repos owned by others that the search found. |
 | `dry-run <repo>`               | Rewrites the cached clone, prints before/after counts per email, proves no old address is left, writes a verified marker.                                                                                                 |
 | `push <repo> --confirm <repo>` | Pushes a verified rewrite: `--force --all`, then `--force --tags`.                                                                                                                                                        |
 | `verify`                       | Commit search again for each old address, prints what is left.                                                                                                                                                            |
@@ -36,14 +36,15 @@ open PRs, releases, signed commits that would lose their signature.
 
 1. Fresh mirror clone (the previous one is replaced). Records the pre-rewrite refs (`for-each-ref`).
 2. `git filter-repo --mailmap <file> --replace-message <file>` in one pass: one mailmap line per old address mapped to the identity, one case-insensitive `regex:` rule per old address for commit and tag messages.
-3. Proof: no old address in `%ae %ce` over `--all`, in commit messages, in tagger emails, in tag messages.
+3. Proof: no old address in `%ae %ce` over every branch and tag (the refs that get pushed), in commit messages, in tagger emails, in tag messages.
 4. Marker `verified.json`: pre-rewrite refs, post-rewrite counts, timestamp.
 
 ### Push guards
 
 - The verified marker exists and its proof passed.
 - `--confirm` equals the repository name, otherwise an interactive prompt asks to type it.
-- `git ls-remote` of the remote equals the pre-rewrite refs (heads and tags), otherwise abort: someone pushed.
+- `git ls-remote` of the remote has the same heads and tags as before the rewrite, each at its pre- or
+  post-rewrite SHA (a refused push can be retried), otherwise abort: someone pushed.
 - Remote is `git@github.com:<owner>/<repo>.git` (SSH, no token).
 - A refused push prints the protection or ruleset to lift and stops. The tool never changes a protection.
 - Open PRs and releases are listed as a warning before the push.
