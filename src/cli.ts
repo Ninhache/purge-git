@@ -1,14 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { defineCommand, runMain } from "citty";
-import {
-  type Config,
-  configState,
-  isRepoName,
-  loadConfig,
-  writeConfig,
-  writeTemplate,
-} from "./config";
+import { type Config, configState, loadConfig, writeConfig, writeTemplate } from "./config";
 import { EXIT_ERROR, EXIT_REMAINING, PurgeError } from "./errors";
 import { run } from "./exec";
 import { filterRepoVersion, scan } from "./git";
@@ -16,6 +9,7 @@ import {
   openPullRequests,
   ownedRepos,
   protections,
+  type Repo,
   releases,
   type SearchField,
   searchCommits,
@@ -31,8 +25,9 @@ import {
   saveInventory,
 } from "./ops";
 import { cacheRoot, configPath, sshRemote } from "./paths";
-import { confirmLocal, pick, pickEmails } from "./prompt";
+import { confirmLocal, pick, pickEmails, pickOrgs } from "./prompt";
 import { table } from "./table";
+import { labelOf, owners, type Target, targetOf } from "./target";
 import { CLI_VERSION } from "./version";
 
 const FIELDS: SearchField[] = ["author-email", "committer-email"];
@@ -64,15 +59,15 @@ async function setup(): Promise<{ ctx: Context; config: Config }> {
   return { ctx: context(), config };
 }
 
-async function ownedRepo(config: Config, repo: string) {
-  if (!isRepoName(repo)) throw new PurgeError(`Not a repository name: ${repo}`);
-  const found = (await ownedRepos(run, config.owner)).find((item) => item.name === repo);
+async function writableRepo(config: Config, value: string): Promise<Target> {
+  const target = targetOf(config, value);
+  const found = (await ownedRepos(run, target.owner)).find((item) => item.name === target.name);
   if (!found) {
     throw new PurgeError(
-      `${config.owner}/${repo} is not one of your own repos (not a fork, not archived).`,
+      `${target.owner}/${target.name} is not a repo you can push to (forks and archived repos are left out).`,
     );
   }
-  return found;
+  return target;
 }
 
 async function searchAll(config: Config) {
@@ -91,9 +86,9 @@ async function searchAll(config: Config) {
 }
 
 function othersOf(config: Config, byRepo: Record<string, number>): string[] {
-  const prefix = `${config.owner.toLowerCase()}/`;
+  const prefixes = owners(config).map((owner) => `${owner.toLowerCase()}/`);
   return Object.keys(byRepo)
-    .filter((name) => !name.toLowerCase().startsWith(prefix))
+    .filter((name) => !prefixes.some((prefix) => name.toLowerCase().startsWith(prefix)))
     .sort();
 }
 
@@ -118,7 +113,13 @@ const init = defineCommand({
         "init asks which addresses to rewrite: run it in a terminal, or use --template.",
       );
     }
-    const config = await discoverConfig({ ctx: context(), sleep, confirmLocal, pickEmails });
+    const config = await discoverConfig({
+      ctx: context(),
+      sleep,
+      confirmLocal,
+      pickEmails,
+      pickOrgs,
+    });
     await writeConfig(path, config);
     console.log(
       `Wrote ${path} (mode 0600) with ${config.oldEmails.length} addresses to rewrite. Next: purge-git inventory`,
@@ -129,13 +130,18 @@ const init = defineCommand({
 const inventory = defineCommand({
   meta: { name: "inventory", description: "Read-only: count old addresses in each of your repos" },
   args: {
-    repo: { type: "string", description: "Only this repo" },
+    repo: { type: "string", description: "Only this repo (org/name for an org repo)" },
   },
   run: guarded(async ({ args }) => {
     const { ctx, config } = await setup();
-    const repos = (await ownedRepos(run, config.owner)).filter(
-      (item) => !args.repo || item.name === args.repo,
-    );
+    const only = args.repo ? targetOf(config, args.repo) : undefined;
+    const repos: (Target & Repo)[] = [];
+    for (const owner of only ? [only.owner] : owners(config)) {
+      for (const item of await ownedRepos(run, owner)) {
+        if (only && item.name !== only.name) continue;
+        repos.push({ ...item, owner, label: labelOf(config, owner, item.name) });
+      }
+    }
     const { byRepo, totals } = await searchAll(config);
     console.log(table(["email", "search", "commits found"], totals));
     console.log("");
@@ -143,12 +149,12 @@ const inventory = defineCommand({
     let clean = 0;
     const failed: string[] = [];
     for (const item of repos) {
-      ctx.log(`Scanning ${item.name}...`);
+      ctx.log(`Scanning ${item.label}...`);
       try {
         const clone = await freshClone(
           ctx,
-          item.name,
-          sshRemote(config.owner, item.name),
+          item.label,
+          sshRemote(item.owner, item.name),
           "inventory",
         );
         const result = await scan(run, clone, config.oldEmails);
@@ -156,9 +162,9 @@ const inventory = defineCommand({
           clean += 1;
           continue;
         }
-        const guard = await protections(run, config.owner, item.name);
+        const guard = await protections(run, item.owner, item.name);
         rows.push({
-          name: item.name,
+          name: item.label,
           commits: result.matching,
           tags: result.matchingTags,
           defaultBranch: item.defaultBranch,
@@ -166,12 +172,12 @@ const inventory = defineCommand({
             [...guard.branches, ...guard.rulesets.map((name) => `ruleset:${name}`)].join(",") ||
             (guard.unknown ? "?" : "-"),
           visibility: item.visibility,
-          openPullRequests: await openPullRequests(run, config.owner, item.name),
-          releases: await releases(run, config.owner, item.name),
+          openPullRequests: await openPullRequests(run, item.owner, item.name),
+          releases: await releases(run, item.owner, item.name),
           signedLost: result.signedLost,
         });
       } catch (error) {
-        failed.push(`  ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
+        failed.push(`  ${item.label}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     console.log("");
@@ -244,7 +250,8 @@ const dryRunCommand = defineCommand({
     repo: {
       type: "positional",
       required: false,
-      description: "Repository name (omit to pick from the last inventory)",
+      description:
+        "Repository name, org/name for an org repo (omit to pick from the last inventory)",
     },
   },
   run: guarded(async ({ args }) => {
@@ -254,13 +261,18 @@ const dryRunCommand = defineCommand({
     const ready: string[] = [];
     for (const name of names) {
       try {
-        await ownedRepo(config, name);
-        const result = await dryRun(ctx, config, name, sshRemote(config.owner, name));
+        const target = await writableRepo(config, name);
+        const result = await dryRun(
+          ctx,
+          config,
+          target.label,
+          sshRemote(target.owner, target.name),
+        );
         if (result.left > 0) {
           failed.push(name);
           process.exitCode = EXIT_REMAINING;
         } else if (result.after) {
-          ready.push(name);
+          ready.push(target.label);
         }
       } catch (error) {
         if (names.length === 1) throw error;
@@ -294,22 +306,31 @@ async function confirmName(repo: string, given: string | undefined): Promise<voi
 const pushCommand = defineCommand({
   meta: { name: "push", description: "Force-push a verified rewrite (branches, then tags)" },
   args: {
-    repo: { type: "positional", required: true, description: "Repository name" },
+    repo: {
+      type: "positional",
+      required: true,
+      description: "Repository name, org/name for an org repo",
+    },
     confirm: { type: "string", description: "Repeat the repository name" },
   },
   run: guarded(async ({ args }) => {
     const { ctx, config } = await setup();
-    await ownedRepo(config, args.repo);
-    const guard = await protections(run, config.owner, args.repo);
-    const prs = await openPullRequests(run, config.owner, args.repo);
-    const tagged = await releases(run, config.owner, args.repo);
+    const target = await writableRepo(config, args.repo);
+    const guard = await protections(run, target.owner, target.name);
+    const prs = await openPullRequests(run, target.owner, target.name);
+    const tagged = await releases(run, target.owner, target.name);
     if (guard.branches.length > 0) console.log(`Protected branches: ${guard.branches.join(", ")}`);
     if (guard.rulesets.length > 0) console.log(`Active rulesets: ${guard.rulesets.join(", ")}`);
     if (prs > 0)
       console.log(`Warning: ${prs} open PRs will no longer match the rewritten history.`);
     if (tagged > 0) console.log(`Warning: ${tagged} releases will point at rewritten tags.`);
-    await confirmName(args.repo, args.confirm);
-    await push(ctx, config, args.repo, sshRemote(config.owner, args.repo));
+    if (target.owner !== config.owner) {
+      console.log(
+        `Warning: ${target.owner} is an organization. Every other member's clone of ${target.name} will stop matching: tell them to clone it again.`,
+      );
+    }
+    await confirmName(target.label, args.confirm);
+    await push(ctx, config, target.label, sshRemote(target.owner, target.name));
   }),
 });
 

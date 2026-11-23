@@ -28,7 +28,8 @@ export interface RepoPaths {
 }
 
 export function repoPaths(cache: string, repo: string): RepoPaths {
-  const root = join(cache, repo);
+  const [owner, name] = repo.split("/");
+  const root = name ? join(cache, `@${owner}`, name) : join(cache, repo);
   return {
     root,
     mirror: join(root, "mirror.git"),

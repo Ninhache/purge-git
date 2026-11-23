@@ -12,11 +12,12 @@ export const configSchema = z.object({
     email: z.email(),
   }),
   oldEmails: z.array(z.email()).min(1),
+  orgs: z.array(z.string().regex(REPO_NAME)).default([]),
 });
 
 export type Config = z.infer<typeof configSchema>;
 
-export const TEMPLATE: Config = {
+export const TEMPLATE: z.input<typeof configSchema> = {
   owner: "your-login",
   identity: { name: "Your Name", email: "12345+your-login@users.noreply.github.com" },
   oldEmails: ["old@example.com"],

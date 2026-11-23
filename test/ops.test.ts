@@ -8,7 +8,7 @@ import { type Context, dryRun, push } from "../src/ops";
 import { repoPaths } from "../src/paths";
 import { commitAs, fixture, git, IDENTITY, OLD, sandbox } from "./helpers";
 
-const config: Config = { owner: "me", identity: IDENTITY, oldEmails: OLD };
+const config: Config = { owner: "me", identity: IDENTITY, oldEmails: OLD, orgs: ["acme"] };
 
 let root: string;
 let remote: string;
@@ -66,6 +66,14 @@ describe("dry run", () => {
     await dryRun(ctx, config, "repo", remote);
     await dryRun(ctx, config, "repo", remote);
     expect(readdirSync(repoPaths(ctx.cache, "repo").backups)).toHaveLength(2);
+  });
+
+  it("should keep an org repo apart from your own repos when caching", async () => {
+    await dryRun(ctx, config, "acme/repo", remote);
+    const paths = repoPaths(ctx.cache, "acme/repo");
+    expect(paths.root).toBe(join(ctx.cache, "@acme", "repo"));
+    expect(existsSync(paths.marker)).toBe(true);
+    expect(existsSync(repoPaths(ctx.cache, "repo").root)).toBe(false);
   });
 
   it("leaves a clean repo alone", async () => {

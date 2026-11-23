@@ -9,6 +9,12 @@ export interface Repo {
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES = 10;
 const RATE_LIMIT_WAIT_MS = 61_000;
+const WRITERS = new Set(["ADMIN", "MAINTAIN", "WRITE"]);
+
+export async function userOrgs(runner: Run): Promise<string[] | null> {
+  const result = await runner("gh", ["api", "--paginate", "user/orgs", "--jq", ".[].login"]);
+  return result.code === 0 ? lines(result.stdout).sort((a, b) => a.localeCompare(b)) : null;
+}
 
 export async function ownedRepos(runner: Run, owner: string): Promise<Repo[]> {
   const out = await runOk(runner, "gh", [
@@ -20,7 +26,7 @@ export async function ownedRepos(runner: Run, owner: string): Promise<Repo[]> {
     "--limit",
     "1000",
     "--json",
-    "name,visibility,defaultBranchRef,isFork,isArchived",
+    "name,visibility,defaultBranchRef,isFork,isArchived,viewerPermission",
   ]);
   const rows = JSON.parse(out) as {
     name: string;
@@ -28,9 +34,11 @@ export async function ownedRepos(runner: Run, owner: string): Promise<Repo[]> {
     defaultBranchRef: { name: string } | null;
     isFork: boolean;
     isArchived: boolean;
+    viewerPermission?: string;
   }[];
   return rows
     .filter((row) => !row.isFork && !row.isArchived)
+    .filter((row) => !row.viewerPermission || WRITERS.has(row.viewerPermission))
     .map((row) => ({
       name: row.name,
       visibility: row.visibility.toLowerCase(),
