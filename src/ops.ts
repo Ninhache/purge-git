@@ -18,7 +18,7 @@ import {
   sameRefs,
   scan,
 } from "./git";
-import { repoPaths } from "./paths";
+import { inventoryFile, repoPaths } from "./paths";
 import { table } from "./table";
 
 export interface Context {
@@ -54,6 +54,31 @@ export async function freshClone(
   if (kind === "mirror") await rm(paths.marker, { force: true });
   await mirrorClone(ctx.run, url, target);
   return target;
+}
+
+export interface InventoryRow {
+  name: string;
+  commits: number;
+  tags: number;
+  defaultBranch: string;
+  protected: string;
+  visibility: string;
+  openPullRequests: number;
+  releases: number;
+  signedLost: number;
+}
+
+export async function saveInventory(ctx: Context, rows: InventoryRow[]): Promise<void> {
+  await mkdir(ctx.cache, { recursive: true, mode: 0o700 });
+  await writeFile(inventoryFile(ctx.cache), `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+}
+
+export async function readInventory(ctx: Context): Promise<InventoryRow[]> {
+  try {
+    return JSON.parse(await readFile(inventoryFile(ctx.cache), "utf8")) as InventoryRow[];
+  } catch {
+    throw new PurgeError("No inventory yet. Run `purge-git inventory` first, or name a repo.");
+  }
 }
 
 export interface DryRunResult {
