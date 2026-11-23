@@ -1,7 +1,22 @@
+# Allowlist: everything is ignored; add a line to track a new top-level path.
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/README.md
+!/CONTRIBUTING.md
+!/LICENSE
+!/package.json
+!/pnpm-lock.yaml
+!/biome.json
+!/tsconfig.json
+!/tsup.config.ts
+!/vitest.config.ts
+!/src/
+!/test/
+!/scripts/
+
+# Junk that can appear inside allowed folders
 node_modules/
 dist/
 *.tgz
-.claude/settings.local.json
-config.json
-*.mailmap
-mailmap

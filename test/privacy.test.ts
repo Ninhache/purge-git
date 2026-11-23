@@ -8,7 +8,15 @@ describe("privacy", () => {
   it("ships no email address outside the allowlist", () => {
     const out = execFileSync(
       "node",
-      ["scripts/scan-emails.mjs", "src", "test", "docs", "scripts", "README.md", "package.json"],
+      [
+        "scripts/scan-emails.mjs",
+        "src",
+        "test",
+        "scripts",
+        "README.md",
+        "CONTRIBUTING.md",
+        "package.json",
+      ],
       { encoding: "utf8" },
     );
     expect(out).toMatch(/No email address/);
