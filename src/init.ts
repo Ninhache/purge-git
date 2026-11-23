@@ -10,7 +10,7 @@ import {
   type Tallies,
 } from "./discover";
 import { PurgeError } from "./errors";
-import { ownedRepos } from "./github";
+import { ownedRepos, userOrgs } from "./github";
 import { type Context, freshClone } from "./ops";
 import { sshRemote } from "./paths";
 
@@ -19,6 +19,7 @@ export interface InitDeps {
   sleep: (ms: number) => Promise<void>;
   confirmLocal: (repos: number) => Promise<boolean>;
   pickEmails: (found: Candidate[]) => Promise<string[] | null>;
+  pickOrgs: (orgs: string[]) => Promise<string[] | null>;
   remote?: (owner: string, repo: string) => string;
 }
 
@@ -35,13 +36,23 @@ export async function discoverConfig(deps: InitDeps): Promise<Config> {
   }
   const searched = await searchedEmails(ctx.run, user.login, tallies, deps.sleep);
   ctx.log(`Read ${searched.read} of the ${searched.total} commits GitHub links to ${user.login}.`);
-  const repos = await ownedRepos(ctx.run, user.login);
+  const orgs = await chosenOrgs(deps);
+  const repos: { owner: string; name: string; label: string }[] = [];
+  for (const owner of [user.login, ...orgs.picked]) {
+    for (const repo of await ownedRepos(ctx.run, owner)) {
+      repos.push({
+        owner,
+        name: repo.name,
+        label: owner === user.login ? repo.name : `${owner}/${repo.name}`,
+      });
+    }
+  }
   if (await deps.confirmLocal(repos.length)) {
     const remote = deps.remote ?? sshRemote;
     for (const repo of repos) {
-      ctx.log(`Reading ${repo.name}...`);
+      ctx.log(`Reading ${repo.label}...`);
       try {
-        const dir = await freshClone(ctx, repo.name, remote(user.login, repo.name), "inventory");
+        const dir = await freshClone(ctx, repo.label, remote(repo.owner, repo.name), "inventory");
         await localEmails(ctx.run, dir, tallies);
       } catch (error) {
         ctx.log(`  skipped: ${error instanceof Error ? error.message : String(error)}`);
@@ -55,5 +66,20 @@ export async function discoverConfig(deps: InitDeps): Promise<Config> {
   const picked = await deps.pickEmails(found);
   if (picked === null) throw new PurgeError("Cancelled. No config written.");
   if (picked.length === 0) throw new PurgeError("No address picked. No config written.");
-  return { owner: user.login, identity, oldEmails: picked };
+  const config: Config = { owner: user.login, identity, oldEmails: picked };
+  return orgs.all ? config : { ...config, orgs: orgs.picked };
+}
+
+async function chosenOrgs(deps: InitDeps): Promise<{ picked: string[]; all: boolean }> {
+  const orgs = await userOrgs(deps.ctx.run);
+  if (orgs === null) {
+    deps.ctx.log(
+      "Skipped your organizations: gh needs the read:org scope (`gh auth refresh -h github.com -s read:org`).",
+    );
+    return { picked: [], all: true };
+  }
+  if (orgs.length === 0) return { picked: [], all: true };
+  const picked = await deps.pickOrgs(orgs);
+  if (picked === null) throw new PurgeError("Cancelled. No config written.");
+  return { picked, all: picked.length === orgs.length };
 }

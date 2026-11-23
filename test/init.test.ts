@@ -16,13 +16,22 @@ function searchItem(sha: string, email: string, name = "Me") {
   return { sha, commit: { author: { name, email } }, repository: { full_name: "me/app" } };
 }
 
-function fakeGh(remote: string, options: { userScope: boolean; items: unknown[] }) {
+function fakeGh(
+  remote: string,
+  options: { userScope: boolean; items: unknown[]; orgs?: string[] | null },
+) {
   const calls: string[][] = [];
   const runner: Run = async (command, args, opts) => {
     if (command !== "gh") return run(command, args, opts);
     calls.push(args);
     const ok = (body: unknown) => ({ code: 0, stdout: JSON.stringify(body), stderr: "" });
     if (args[1] === "user") return ok(USER);
+    if (args.includes("user/orgs")) {
+      const orgs = options.orgs === undefined ? [] : options.orgs;
+      return orgs === null
+        ? { code: 1, stdout: "", stderr: "needs read:org" }
+        : { code: 0, stdout: orgs.join("\n"), stderr: "" };
+    }
     if (args[1] === "user/emails") {
       return options.userScope
         ? ok([{ email: "account@example.com" }, { email: NOREPLY }])
@@ -86,6 +95,7 @@ describe("discoverConfig", () => {
     const config = await discoverConfig({
       ctx,
       sleep: async () => undefined,
+      pickOrgs: async () => [],
       confirmLocal: async () => true,
       pickEmails: async (found) => {
         offered = found;
@@ -117,6 +127,7 @@ describe("discoverConfig", () => {
     const config = await discoverConfig({
       ctx,
       sleep: async () => undefined,
+      pickOrgs: async () => [],
       confirmLocal: async () => false,
       pickEmails: async (found) => found.map((candidate) => candidate.email),
     });
@@ -131,13 +142,77 @@ describe("discoverConfig", () => {
       items: [searchItem("a", "x@example.com")],
     });
     ctx = context(runner);
-    const base = { ctx, sleep: async () => undefined, confirmLocal: async () => false };
+    const base = {
+      ctx,
+      sleep: async () => undefined,
+      pickOrgs: async () => [],
+      confirmLocal: async () => false,
+    };
     await expect(discoverConfig({ ...base, pickEmails: async () => [] })).rejects.toThrow(
       /No address picked/,
     );
     await expect(discoverConfig({ ...base, pickEmails: async () => null })).rejects.toThrow(
       /Cancelled/,
     );
+  });
+});
+
+describe("discoverConfig with organizations", () => {
+  it("should scan the repos of a picked org when the local scan runs", async () => {
+    const { runner } = fakeGh(remote, { userScope: false, items: [], orgs: ["acme", "other"] });
+    ctx = context(runner);
+    let offered: string[] = [];
+    const config = await discoverConfig({
+      ctx,
+      sleep: async () => undefined,
+      pickOrgs: async (orgs) => {
+        offered = orgs;
+        return ["acme"];
+      },
+      confirmLocal: async () => true,
+      pickEmails: async (found) => found.slice(0, 1).map((candidate) => candidate.email),
+      remote: () => remote,
+    });
+    expect(offered).toEqual(["acme", "other"]);
+    expect(config.orgs).toEqual(["acme"]);
+    expect(logs).toContain("Reading acme/app...");
+  });
+
+  it("should leave orgs out of the config when every org is ticked", async () => {
+    const { runner } = fakeGh(remote, {
+      userScope: false,
+      items: [searchItem("a", "x@example.com")],
+      orgs: ["acme", "other"],
+    });
+    ctx = context(runner);
+    const config = await discoverConfig({
+      ctx,
+      sleep: async () => undefined,
+      pickOrgs: async (orgs) => orgs,
+      confirmLocal: async () => false,
+      pickEmails: async (found) => found.map((candidate) => candidate.email),
+    });
+    expect("orgs" in config).toBe(false);
+  });
+
+  it("should skip organizations when gh lacks the read:org scope", async () => {
+    const { runner } = fakeGh(remote, {
+      userScope: false,
+      items: [searchItem("a", "x@example.com")],
+      orgs: null,
+    });
+    ctx = context(runner);
+    const config = await discoverConfig({
+      ctx,
+      sleep: async () => undefined,
+      pickOrgs: async () => {
+        throw new Error("should not ask");
+      },
+      confirmLocal: async () => false,
+      pickEmails: async (found) => found.map((candidate) => candidate.email),
+    });
+    expect(config.orgs).toBeUndefined();
+    expect(logs.join("\n")).toMatch(/-s read:org/);
   });
 });
 
@@ -159,7 +234,7 @@ describe("writeConfig", () => {
     expect(await configState(path)).toBe("none");
     expect(await writeTemplate(path)).toBe(true);
     expect(await configState(path)).toBe("template");
-    await writeConfig(path, { ...TEMPLATE, owner: "me" });
+    await writeConfig(path, { ...TEMPLATE, owner: "me", orgs: [] });
     expect(await configState(path)).toBe("custom");
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect((await loadConfig(path)).owner).toBe("me");

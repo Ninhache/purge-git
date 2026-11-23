@@ -21,7 +21,9 @@ asks `gh` who you are and finds the addresses to rewrite:
 1. your login, and your noreply address `<id>+<login>@users.noreply.github.com` as the new identity;
 2. the addresses on your GitHub account, when `gh` has the read-only `user:email` scope (`gh auth refresh -h github.com -s user:email`);
 3. the addresses in the commits GitHub links to you (commit search, oldest and newest 1000);
-4. if you accept, the addresses in every repo you own, cloned locally. This finds addresses removed from
+4. the organizations you belong to (needs the `read:org` scope, which `gh` has by default), all ticked: untick
+   the ones to leave alone. Only repos you can push to are used;
+5. if you accept, the addresses in every repo you own or in a ticked org, cloned locally. This finds addresses removed from
    your account, which GitHub no longer links to you. Addresses used under other names come last, unticked.
 
 You tick the ones to rewrite in a list (searchable when it is long). Addresses found on GitHub are ticked
@@ -37,7 +39,12 @@ first. It writes `~/.config/purge-git/config.json` (mode 0600; `PURGE_GIT_CONFIG
 
 `init --template` writes that template to fill in by hand instead, and `init --force` replaces a config you
 already filled in. The addresses stay in that file: never commit it. The tool refuses it when other users can
-read it.
+read it. Without `orgs`, every organization you belong to is included, with the repos you can push to.
+`"orgs": ["your-org"]` limits it to those, and `"orgs": []` leaves them all out. `init` writes the list only when
+you untick one.
+
+An org repo is named `org/name` in every command (`purge-git dry-run your-org/app`); your own repos keep their
+bare name. Pushing one rewrites history every other member shares: they all have to clone it again.
 
 ## Commands
 

@@ -55,3 +55,11 @@ export function confirmLocal(repos: number): Promise<boolean> {
     `Also read your ${repos} repos locally? It finds addresses GitHub no longer links to you, but clones every repo.`,
   );
 }
+
+export function pickOrgs(orgs: string[]): Promise<string[] | null> {
+  return pick(
+    "Which organizations should be rewritten too? Only repos you can push to are used. Other members' clones will break.",
+    orgs.map((org) => ({ value: org, label: org })),
+    orgs,
+  );
+}

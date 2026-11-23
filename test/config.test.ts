@@ -21,6 +21,10 @@ describe("config", () => {
     expect(await loadConfig(file(valid, 0o600))).toEqual(valid);
   });
 
+  it("should refuse an org that is not a GitHub name when loading", async () => {
+    await expect(loadConfig(file({ ...valid, orgs: ["a/b"] }, 0o600))).rejects.toThrow(/orgs/);
+  });
+
   it("refuses a config other users can read", async () => {
     await expect(loadConfig(file(valid, 0o644))).rejects.toThrow(/readable by others/);
   });
