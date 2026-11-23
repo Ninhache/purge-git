@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Config } from "../src/config";
@@ -50,6 +50,24 @@ describe("dry run", () => {
     expect(statSync(paths.marker).mode & 0o777).toBe(0o600);
   });
 
+  it("should save the original history privately when it rewrites", async () => {
+    const original = git(remote, ["for-each-ref", "refs/heads", "refs/tags"]);
+    await dryRun(ctx, config, "repo", remote);
+    const { backups } = repoPaths(ctx.cache, "repo");
+    const [file] = readdirSync(backups);
+    expect(statSync(backups).mode & 0o777).toBe(0o700);
+    expect(statSync(join(backups, `${file}`)).mode & 0o777).toBe(0o600);
+    const restored = join(root, "restored.git");
+    git(root, ["clone", "--quiet", "--mirror", join(backups, `${file}`), restored]);
+    expect(git(restored, ["for-each-ref", "refs/heads", "refs/tags"])).toBe(original);
+  });
+
+  it("should keep earlier backups when the dry run runs again", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    await dryRun(ctx, config, "repo", remote);
+    expect(readdirSync(repoPaths(ctx.cache, "repo").backups)).toHaveLength(2);
+  });
+
   it("leaves a clean repo alone", async () => {
     const clean = { ...config, oldEmails: ["nobody@example.com"] };
     const result = await dryRun(ctx, clean, "repo", remote);
@@ -97,6 +115,14 @@ describe("push", () => {
     git(work, ["push", "--quiet", remote, "main"]);
     const remoteBefore = git(remote, ["for-each-ref"]);
     await expect(push(ctx, config, "repo", remote)).rejects.toThrow(/remote moved/);
+    expect(git(remote, ["for-each-ref"])).toBe(remoteBefore);
+  });
+
+  it("should refuse to push when the backup is missing", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    rmSync(repoPaths(ctx.cache, "repo").backups, { recursive: true });
+    const remoteBefore = git(remote, ["for-each-ref"]);
+    await expect(push(ctx, config, "repo", remote)).rejects.toThrow(/backup/);
     expect(git(remote, ["for-each-ref"])).toBe(remoteBefore);
   });
 

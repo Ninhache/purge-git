@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { defineCommand, runMain } from "citty";
-import { type Config, isRepoName, loadConfig, writeTemplate } from "./config";
+import {
+  type Config,
+  configState,
+  isRepoName,
+  loadConfig,
+  writeConfig,
+  writeTemplate,
+} from "./config";
 import { EXIT_ERROR, EXIT_REMAINING, PurgeError } from "./errors";
 import { run } from "./exec";
 import { filterRepoVersion, scan } from "./git";
@@ -13,8 +20,18 @@ import {
   type SearchField,
   searchCommits,
 } from "./github";
-import { type Context, dryRun, freshClone, push } from "./ops";
+import { discoverConfig } from "./init";
+import {
+  type Context,
+  dryRun,
+  freshClone,
+  type InventoryRow,
+  push,
+  readInventory,
+  saveInventory,
+} from "./ops";
 import { cacheRoot, configPath, sshRemote } from "./paths";
+import { confirmLocal, pick, pickEmails } from "./prompt";
 import { table } from "./table";
 import { CLI_VERSION } from "./version";
 
@@ -81,12 +98,30 @@ function othersOf(config: Config, byRepo: Record<string, number>): string[] {
 }
 
 const init = defineCommand({
-  meta: { name: "init", description: "Write a config template (mode 0600)" },
-  run: guarded(async () => {
+  meta: { name: "init", description: "Find your old addresses with gh and write the config" },
+  args: {
+    template: { type: "boolean", description: "Only write a template to fill in by hand" },
+    force: { type: "boolean", description: "Replace a config you already filled in" },
+  },
+  run: guarded(async ({ args }) => {
     const path = configPath();
-    const created = await writeTemplate(path);
+    if (args.template) {
+      const created = await writeTemplate(path);
+      console.log(created ? `Wrote ${path}. Fill it in.` : `${path} already exists.`);
+      return;
+    }
+    if ((await configState(path)) === "custom" && !args.force) {
+      throw new PurgeError(`${path} already exists. Pass --force to replace it.`);
+    }
+    if (!process.stdin.isTTY) {
+      throw new PurgeError(
+        "init asks which addresses to rewrite: run it in a terminal, or use --template.",
+      );
+    }
+    const config = await discoverConfig({ ctx: context(), sleep, confirmLocal, pickEmails });
+    await writeConfig(path, config);
     console.log(
-      created ? `Wrote ${path}. Fill in owner, identity and oldEmails.` : `${path} already exists.`,
+      `Wrote ${path} (mode 0600) with ${config.oldEmails.length} addresses to rewrite. Next: purge-git inventory`,
     );
   }),
 });
@@ -104,7 +139,7 @@ const inventory = defineCommand({
     const { byRepo, totals } = await searchAll(config);
     console.log(table(["email", "search", "commits found"], totals));
     console.log("");
-    const rows: (string | number)[][] = [];
+    const rows: InventoryRow[] = [];
     let clean = 0;
     const failed: string[] = [];
     for (const item of repos) {
@@ -122,18 +157,19 @@ const inventory = defineCommand({
           continue;
         }
         const guard = await protections(run, config.owner, item.name);
-        rows.push([
-          item.name,
-          result.matching,
-          result.matchingTags,
-          item.defaultBranch,
-          [...guard.branches, ...guard.rulesets.map((name) => `ruleset:${name}`)].join(",") ||
+        rows.push({
+          name: item.name,
+          commits: result.matching,
+          tags: result.matchingTags,
+          defaultBranch: item.defaultBranch,
+          protected:
+            [...guard.branches, ...guard.rulesets.map((name) => `ruleset:${name}`)].join(",") ||
             (guard.unknown ? "?" : "-"),
-          item.visibility,
-          await openPullRequests(run, config.owner, item.name),
-          await releases(run, config.owner, item.name),
-          result.signedLost,
-        ]);
+          visibility: item.visibility,
+          openPullRequests: await openPullRequests(run, config.owner, item.name),
+          releases: await releases(run, config.owner, item.name),
+          signedLost: result.signedLost,
+        });
       } catch (error) {
         failed.push(`  ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -152,9 +188,20 @@ const inventory = defineCommand({
           "releases",
           "signed lost",
         ],
-        rows,
+        rows.map((row) => [
+          row.name,
+          row.commits,
+          row.tags,
+          row.defaultBranch,
+          row.protected,
+          row.visibility,
+          row.openPullRequests,
+          row.releases,
+          row.signedLost,
+        ]),
       ),
     );
+    if (!args.repo) await saveInventory(ctx, rows);
     console.log(`\n${rows.length} repos to rewrite, ${clean} clean, ${failed.length} failed.`);
     if (failed.length > 0) {
       console.log(`\nCould not scan:\n${failed.join("\n")}`);
@@ -168,14 +215,66 @@ const inventory = defineCommand({
   }),
 });
 
+function repoHint(row: InventoryRow): string {
+  const extras = [
+    row.protected !== "-" ? `protected: ${row.protected}` : "",
+    row.openPullRequests > 0 ? `${row.openPullRequests} open PRs` : "",
+    row.releases > 0 ? `${row.releases} releases` : "",
+  ].filter(Boolean);
+  return [`${row.commits} commits, ${row.tags} tags`, ...extras].join(" · ");
+}
+
+async function pickRepos(ctx: Context): Promise<string[]> {
+  if (!process.stdin.isTTY) throw new PurgeError("Name the repo: purge-git dry-run <repo>.");
+  const rows = await readInventory(ctx);
+  if (rows.length === 0) throw new PurgeError("The last inventory found nothing to rewrite.");
+  const picked = await pick(
+    "Which repos should be dry-run? (space to tick, enter to confirm; nothing is pushed)",
+    [...rows]
+      .sort((a, b) => a.commits - b.commits || a.name.localeCompare(b.name))
+      .map((row) => ({ value: row.name, label: row.name, hint: repoHint(row) })),
+  );
+  if (picked === null || picked.length === 0) throw new PurgeError("No repo picked.");
+  return picked;
+}
+
 const dryRunCommand = defineCommand({
   meta: { name: "dry-run", description: "Rewrite a fresh clone and prove no old address is left" },
-  args: { repo: { type: "positional", required: true, description: "Repository name" } },
+  args: {
+    repo: {
+      type: "positional",
+      required: false,
+      description: "Repository name (omit to pick from the last inventory)",
+    },
+  },
   run: guarded(async ({ args }) => {
     const { ctx, config } = await setup();
-    await ownedRepo(config, args.repo);
-    const result = await dryRun(ctx, config, args.repo, sshRemote(config.owner, args.repo));
-    if (result.left > 0) process.exitCode = EXIT_REMAINING;
+    const names = args.repo ? [args.repo] : await pickRepos(ctx);
+    const failed: string[] = [];
+    const ready: string[] = [];
+    for (const name of names) {
+      try {
+        await ownedRepo(config, name);
+        const result = await dryRun(ctx, config, name, sshRemote(config.owner, name));
+        if (result.left > 0) {
+          failed.push(name);
+          process.exitCode = EXIT_REMAINING;
+        } else if (result.after) {
+          ready.push(name);
+        }
+      } catch (error) {
+        if (names.length === 1) throw error;
+        console.error(error instanceof Error ? error.message : String(error));
+        failed.push(name);
+        process.exitCode ||= EXIT_ERROR;
+      }
+      if (names.length > 1) console.log("");
+    }
+    if (ready.length > 0) {
+      console.log(
+        `Ready to push, one at a time:\n${ready.map((name) => `  purge-git push ${name} --confirm ${name}`).join("\n")}`,
+      );
+    }
   }),
 });
 

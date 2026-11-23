@@ -13,6 +13,10 @@ export function cacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   return join(base, "purge-git");
 }
 
+export function inventoryFile(cache: string): string {
+  return join(cache, "@inventory.json");
+}
+
 export interface RepoPaths {
   root: string;
   mirror: string;
@@ -20,6 +24,7 @@ export interface RepoPaths {
   mailmap: string;
   messages: string;
   marker: string;
+  backups: string;
 }
 
 export function repoPaths(cache: string, repo: string): RepoPaths {
@@ -31,6 +36,7 @@ export function repoPaths(cache: string, repo: string): RepoPaths {
     mailmap: join(root, "mailmap"),
     messages: join(root, "messages"),
     marker: join(root, "verified.json"),
+    backups: join(root, "backups"),
   };
 }
 

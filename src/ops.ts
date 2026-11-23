@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { Config } from "./config";
 import { EXIT_REMAINING, PurgeError } from "./errors";
 import type { Run } from "./exec";
 import {
+  bundle,
   filterRepo,
   forcePush,
   localRefs,
@@ -18,7 +21,7 @@ import {
   sameRefs,
   scan,
 } from "./git";
-import { repoPaths } from "./paths";
+import { inventoryFile, type RepoPaths, repoPaths } from "./paths";
 import { table } from "./table";
 
 export interface Context {
@@ -32,6 +35,7 @@ export interface Marker {
   url: string;
   preRefs: Refs;
   postRefs: Refs;
+  backup: string;
   before: Scan;
   after: Scan;
   passed: boolean;
@@ -56,6 +60,31 @@ export async function freshClone(
   return target;
 }
 
+export interface InventoryRow {
+  name: string;
+  commits: number;
+  tags: number;
+  defaultBranch: string;
+  protected: string;
+  visibility: string;
+  openPullRequests: number;
+  releases: number;
+  signedLost: number;
+}
+
+export async function saveInventory(ctx: Context, rows: InventoryRow[]): Promise<void> {
+  await mkdir(ctx.cache, { recursive: true, mode: 0o700 });
+  await writeFile(inventoryFile(ctx.cache), `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+}
+
+export async function readInventory(ctx: Context): Promise<InventoryRow[]> {
+  try {
+    return JSON.parse(await readFile(inventoryFile(ctx.cache), "utf8")) as InventoryRow[];
+  } catch {
+    throw new PurgeError("No inventory yet. Run `purge-git inventory` first, or name a repo.");
+  }
+}
+
 export interface DryRunResult {
   before: Scan;
   after?: Scan;
@@ -76,6 +105,8 @@ export async function dryRun(
     ctx.log(`${repo}: no commit or tag uses an old address. Nothing to rewrite.`);
     return { before, left: 0 };
   }
+  const at = new Date().toISOString();
+  const backup = await backupOf(ctx, paths, at);
   await writeFile(paths.mailmap, mailmapFile(config.identity, config.oldEmails), { mode: 0o600 });
   await writeFile(paths.messages, messagesFile(config.identity.email, config.oldEmails), {
     mode: 0o600,
@@ -89,14 +120,25 @@ export async function dryRun(
     url,
     preRefs,
     postRefs,
+    backup,
     before,
     after,
     passed: left === 0,
-    at: new Date().toISOString(),
+    at,
   };
   await writeFile(paths.marker, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
   ctx.log(report(repo, config, before, after, left));
   return { before, after, left };
+}
+
+async function backupOf(ctx: Context, paths: RepoPaths, at: string): Promise<string> {
+  await mkdir(paths.backups, { recursive: true, mode: 0o700 });
+  await chmod(paths.backups, 0o700);
+  const file = join(paths.backups, `${at.replace(/[:.]/g, "-")}.bundle`);
+  await bundle(ctx.run, paths.mirror, file);
+  await chmod(file, 0o600);
+  ctx.log(`Original history saved to ${file}`);
+  return file;
 }
 
 export function report(
@@ -142,6 +184,11 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
     throw new PurgeError(
       `${repo}: the dry run left old addresses. Nothing pushed.`,
       EXIT_REMAINING,
+    );
+  }
+  if (!marker.backup || !existsSync(marker.backup)) {
+    throw new PurgeError(
+      `${repo}: the backup of the original history is missing. Run the dry run again. Nothing pushed.`,
     );
   }
   if (marker.url !== url) {

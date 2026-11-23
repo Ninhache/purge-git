@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { PurgeError } from "./errors";
@@ -47,13 +47,32 @@ export async function loadConfig(path: string): Promise<Config> {
   return parsed.data;
 }
 
-export async function writeTemplate(path: string): Promise<boolean> {
+export type ConfigState = "none" | "template" | "custom";
+
+export async function configState(path: string): Promise<ConfigState> {
+  let text: string;
   try {
-    await stat(path);
-    return false;
+    text = await readFile(path, "utf8");
   } catch {
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, `${JSON.stringify(TEMPLATE, null, 2)}\n`, { mode: 0o600, flag: "wx" });
-    return true;
+    return "none";
   }
+  try {
+    return JSON.stringify(JSON.parse(text)) === JSON.stringify(TEMPLATE) ? "template" : "custom";
+  } catch {
+    return "custom";
+  }
+}
+
+export async function writeConfig(path: string, config: Config): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await chmod(path, 0o600).catch(() => undefined);
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  await chmod(path, 0o600);
+}
+
+export async function writeTemplate(path: string): Promise<boolean> {
+  if ((await configState(path)) !== "none") return false;
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(TEMPLATE, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  return true;
 }

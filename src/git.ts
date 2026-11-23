@@ -13,6 +13,10 @@ export async function mirrorClone(runner: Run, url: string, dir: string): Promis
   await runOk(runner, "git", ["clone", "--quiet", "--mirror", url, dir]);
 }
 
+export async function bundle(runner: Run, dir: string, file: string): Promise<void> {
+  await runOk(runner, "git", ["-C", dir, "bundle", "create", "--quiet", file, "--all"]);
+}
+
 export async function localRefs(runner: Run, dir: string): Promise<Refs> {
   const out = await runOk(runner, "git", [
     "-C",
