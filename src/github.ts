@@ -52,15 +52,34 @@ export async function searchCommits(
   email: string,
   sleep: (ms: number) => Promise<void>,
 ): Promise<SearchHits> {
-  const hits: SearchHits = { total: 0, byRepo: {} };
+  const found = await searchPages(runner, { q: `${field}:${email}` }, sleep);
+  const hits: SearchHits = { total: found.total, byRepo: {} };
+  for (const item of found.items as { repository: { full_name: string } }[]) {
+    const name = item.repository.full_name;
+    hits.byRepo[name] = (hits.byRepo[name] ?? 0) + 1;
+  }
+  return hits;
+}
+
+export interface SearchResult {
+  total: number;
+  items: unknown[];
+}
+
+export async function searchPages(
+  runner: Run,
+  params: Record<string, string>,
+  sleep: (ms: number) => Promise<void>,
+): Promise<SearchResult> {
+  const found: SearchResult = { total: 0, items: [] };
+  const fields = Object.entries(params).flatMap(([key, value]) => ["-f", `${key}=${value}`]);
   for (let page = 1; page <= SEARCH_MAX_PAGES; page += 1) {
     const args = [
       "api",
       "-X",
       "GET",
       "search/commits",
-      "-f",
-      `q=${field}:${email}`,
+      ...fields,
       "-f",
       `per_page=${SEARCH_PAGE_SIZE}`,
       "-f",
@@ -72,18 +91,12 @@ export async function searchCommits(
       result = await runner("gh", args);
     }
     if (result.code !== 0) throw new Error(`gh search failed: ${result.stderr.trim()}`);
-    const body = JSON.parse(result.stdout) as {
-      total_count: number;
-      items: { repository: { full_name: string } }[];
-    };
-    hits.total = body.total_count;
-    for (const item of body.items) {
-      const name = item.repository.full_name;
-      hits.byRepo[name] = (hits.byRepo[name] ?? 0) + 1;
-    }
+    const body = JSON.parse(result.stdout) as { total_count: number; items: unknown[] };
+    found.total = body.total_count;
+    found.items.push(...body.items);
     if (body.items.length < SEARCH_PAGE_SIZE) break;
   }
-  return hits;
+  return found;
 }
 
 export interface Protections {

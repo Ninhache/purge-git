@@ -16,7 +16,16 @@ Pushes go over SSH (`git@github.com:<owner>/<repo>.git`).
 purge-git init
 ```
 
-writes `~/.config/purge-git/config.json` (mode 0600; `PURGE_GIT_CONFIG` overrides the path):
+asks `gh` who you are and finds the addresses to rewrite:
+
+1. your login, and your noreply address `<id>+<login>@users.noreply.github.com` as the new identity;
+2. the addresses on your GitHub account, when `gh` has the read-only `user:email` scope (`gh auth refresh -h github.com -s user:email`);
+3. the addresses in the commits GitHub links to you (commit search, oldest and newest 1000);
+4. if you accept, the addresses in every repo you own, cloned locally. This finds addresses removed from
+   your account, which GitHub no longer links to you. Addresses used under other names come last, unticked.
+
+You tick the ones to rewrite in a list (searchable when it is long). Addresses found on GitHub are ticked
+first. It writes `~/.config/purge-git/config.json` (mode 0600; `PURGE_GIT_CONFIG` overrides the path):
 
 ```json
 {
@@ -26,7 +35,9 @@ writes `~/.config/purge-git/config.json` (mode 0600; `PURGE_GIT_CONFIG` override
 }
 ```
 
-The addresses stay in that file: never commit it. The tool refuses it when other users can read it.
+`init --template` writes that template to fill in by hand instead, and `init --force` replaces a config you
+already filled in. The addresses stay in that file: never commit it. The tool refuses it when other users can
+read it.
 
 ## Commands
 

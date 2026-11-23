@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { defineCommand, runMain } from "citty";
-import { type Config, isRepoName, loadConfig, writeTemplate } from "./config";
+import {
+  type Config,
+  configState,
+  isRepoName,
+  loadConfig,
+  writeConfig,
+  writeTemplate,
+} from "./config";
+
 import { EXIT_ERROR, EXIT_REMAINING, PurgeError } from "./errors";
 import { run } from "./exec";
 import { filterRepoVersion, scan } from "./git";
@@ -13,8 +21,10 @@ import {
   type SearchField,
   searchCommits,
 } from "./github";
+import { discoverConfig } from "./init";
 import { type Context, dryRun, freshClone, push } from "./ops";
 import { cacheRoot, configPath, sshRemote } from "./paths";
+import { confirmLocal, pickEmails } from "./prompt";
 import { table } from "./table";
 import { CLI_VERSION } from "./version";
 
@@ -81,12 +91,30 @@ function othersOf(config: Config, byRepo: Record<string, number>): string[] {
 }
 
 const init = defineCommand({
-  meta: { name: "init", description: "Write a config template (mode 0600)" },
-  run: guarded(async () => {
+  meta: { name: "init", description: "Find your old addresses with gh and write the config" },
+  args: {
+    template: { type: "boolean", description: "Only write a template to fill in by hand" },
+    force: { type: "boolean", description: "Replace a config you already filled in" },
+  },
+  run: guarded(async ({ args }) => {
     const path = configPath();
-    const created = await writeTemplate(path);
+    if (args.template) {
+      const created = await writeTemplate(path);
+      console.log(created ? `Wrote ${path}. Fill it in.` : `${path} already exists.`);
+      return;
+    }
+    if ((await configState(path)) === "custom" && !args.force) {
+      throw new PurgeError(`${path} already exists. Pass --force to replace it.`);
+    }
+    if (!process.stdin.isTTY) {
+      throw new PurgeError(
+        "init asks which addresses to rewrite: run it in a terminal, or use --template.",
+      );
+    }
+    const config = await discoverConfig({ ctx: context(), sleep, confirmLocal, pickEmails });
+    await writeConfig(path, config);
     console.log(
-      created ? `Wrote ${path}. Fill in owner, identity and oldEmails.` : `${path} already exists.`,
+      `Wrote ${path} (mode 0600) with ${config.oldEmails.length} addresses to rewrite. Next: purge-git inventory`,
     );
   }),
 });
