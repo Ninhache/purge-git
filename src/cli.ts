@@ -13,7 +13,7 @@ import {
   type SearchField,
   searchCommits,
 } from "./github";
-import { type Context, dryRun, freshMirror, push } from "./ops";
+import { type Context, dryRun, freshClone, push } from "./ops";
 import { cacheRoot, configPath, sshRemote } from "./paths";
 import { table } from "./table";
 import { CLI_VERSION } from "./version";
@@ -106,27 +106,37 @@ const inventory = defineCommand({
     console.log("");
     const rows: (string | number)[][] = [];
     let clean = 0;
+    const failed: string[] = [];
     for (const item of repos) {
       ctx.log(`Scanning ${item.name}...`);
-      const mirror = await freshMirror(ctx, item.name, sshRemote(config.owner, item.name));
-      const result = await scan(run, mirror, config.oldEmails);
-      if (result.matching === 0 && result.matchingTags === 0) {
-        clean += 1;
-        continue;
+      try {
+        const clone = await freshClone(
+          ctx,
+          item.name,
+          sshRemote(config.owner, item.name),
+          "inventory",
+        );
+        const result = await scan(run, clone, config.oldEmails);
+        if (result.matching === 0 && result.matchingTags === 0) {
+          clean += 1;
+          continue;
+        }
+        const guard = await protections(run, config.owner, item.name);
+        rows.push([
+          item.name,
+          result.matching,
+          result.matchingTags,
+          item.defaultBranch,
+          [...guard.branches, ...guard.rulesets.map((name) => `ruleset:${name}`)].join(",") ||
+            (guard.unknown ? "?" : "-"),
+          item.visibility,
+          await openPullRequests(run, config.owner, item.name),
+          await releases(run, config.owner, item.name),
+          result.signedLost,
+        ]);
+      } catch (error) {
+        failed.push(`  ${item.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
-      const guard = await protections(run, config.owner, item.name);
-      rows.push([
-        item.name,
-        result.matching,
-        result.matchingTags,
-        item.defaultBranch,
-        [...guard.branches, ...guard.rulesets.map((name) => `ruleset:${name}`)].join(",") ||
-          (guard.unknown ? "?" : "-"),
-        item.visibility,
-        await openPullRequests(run, config.owner, item.name),
-        await releases(run, config.owner, item.name),
-        result.signedLost,
-      ]);
     }
     console.log("");
     console.log(
@@ -145,7 +155,11 @@ const inventory = defineCommand({
         rows,
       ),
     );
-    console.log(`\n${rows.length} repos to rewrite, ${clean} clean.`);
+    console.log(`\n${rows.length} repos to rewrite, ${clean} clean, ${failed.length} failed.`);
+    if (failed.length > 0) {
+      console.log(`\nCould not scan:\n${failed.join("\n")}`);
+      process.exitCode = EXIT_ERROR;
+    }
     const others = othersOf(config, byRepo);
     if (others.length > 0) {
       console.log("\nRepos you don't own with an old address (ask their owners):");

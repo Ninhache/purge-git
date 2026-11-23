@@ -16,6 +16,7 @@ export function cacheRoot(env: NodeJS.ProcessEnv = process.env): string {
 export interface RepoPaths {
   root: string;
   mirror: string;
+  inventory: string;
   mailmap: string;
   messages: string;
   marker: string;
@@ -26,6 +27,7 @@ export function repoPaths(cache: string, repo: string): RepoPaths {
   return {
     root,
     mirror: join(root, "mirror.git"),
+    inventory: join(root, "inventory.git"),
     mailmap: join(root, "mailmap"),
     messages: join(root, "messages"),
     marker: join(root, "verified.json"),
