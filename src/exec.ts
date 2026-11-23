@@ -32,6 +32,7 @@ export const run: Run = (command, args, options = {}) =>
         stderr: Buffer.concat(err).toString("utf8"),
       }),
     );
+    child.stdin.on("error", () => undefined);
     child.stdin.end(options.input ?? "");
   });
 
