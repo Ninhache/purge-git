@@ -12,6 +12,8 @@ import {
   mailmapFile,
   messagesFile,
   mirrorClone,
+  pushPlan,
+  type RefChange,
   type Refs,
   refsBetween,
   refusalOf,
@@ -177,7 +179,13 @@ export async function readMarker(ctx: Context, repo: string): Promise<Marker> {
   }
 }
 
-export async function push(ctx: Context, config: Config, repo: string, url: string): Promise<void> {
+export async function push(
+  ctx: Context,
+  config: Config,
+  repo: string,
+  url: string,
+  options: { dryRun?: boolean } = {},
+): Promise<void> {
   const paths = repoPaths(ctx.cache, repo);
   const marker = await readMarker(ctx, repo);
   if (!marker.passed) {
@@ -194,7 +202,8 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
   if (marker.url !== url) {
     throw new PurgeError(`${repo}: the dry run was made from ${marker.url}, not ${url}.`);
   }
-  if (!sameRefs(await localRefs(ctx.run, paths.mirror), marker.postRefs)) {
+  const local = await localRefs(ctx.run, paths.mirror);
+  if (!sameRefs(local, marker.postRefs)) {
     throw new PurgeError(`${repo}: the rewritten clone changed since the dry run. Run it again.`);
   }
   const left = remaining(await scan(ctx.run, paths.mirror, config.oldEmails), config.oldEmails);
@@ -204,10 +213,15 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
       EXIT_REMAINING,
     );
   }
-  if (!refsBetween(await remoteRefs(ctx.run, url), marker.preRefs, marker.postRefs)) {
+  const current = await remoteRefs(ctx.run, url);
+  if (!refsBetween(current, marker.preRefs, marker.postRefs)) {
     throw new PurgeError(
       `${repo}: the remote moved since the dry run (someone pushed). Run the dry run again. Nothing pushed.`,
     );
+  }
+  if (options.dryRun) {
+    logPlan(ctx, repo, pushPlan(current, local));
+    return;
   }
   const outcome = await forcePush(ctx.run, paths.mirror, url);
   if (!outcome.ok) {
@@ -223,4 +237,24 @@ export async function push(ctx: Context, config: Config, repo: string, url: stri
   }
   await rename(paths.marker, `${paths.root}/pushed.json`);
   ctx.log(`${repo}: pushed every branch and tag.`);
+}
+
+function logPlan(ctx: Context, repo: string, plan: RefChange[]): void {
+  const short = (sha: string) => sha.slice(0, 7);
+  const width = Math.max(...plan.map((change) => change.ref.length));
+  ctx.log(`${repo}: dry run of the push. Nothing is sent to GitHub.`);
+  for (const change of plan) {
+    const what =
+      change.from === change.to
+        ? "already pushed"
+        : change.from === undefined
+          ? `created at ${short(change.to)}`
+          : `${short(change.from)} -> ${short(change.to)} (force)`;
+    ctx.log(`  ${change.ref.padEnd(width)}  ${what}`);
+  }
+  const replaced = plan.filter((change) => change.from && change.from !== change.to).length;
+  const created = plan.filter((change) => change.from === undefined).length;
+  ctx.log(
+    `${replaced} refs would be replaced and ${created} created. The backup keeps the old ones.`,
+  );
 }

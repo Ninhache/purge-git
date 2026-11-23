@@ -313,6 +313,10 @@ const pushCommand = defineCommand({
       description: "Repository name, org/name for an org repo",
     },
     confirm: { type: "string", description: "Repeat the repository name" },
+    "dry-run": {
+      type: "boolean",
+      description: "Show what the push would change, without sending anything",
+    },
   },
   run: guarded(async ({ args }) => {
     const { ctx, config } = await setup();
@@ -330,9 +334,14 @@ const pushCommand = defineCommand({
         `Warning: ${target.owner} is an organization. Every other member's clone of ${target.name} will stop matching: tell them to clone it again.`,
       );
     }
+    const url = sshRemote(target.owner, target.name);
+    if (args["dry-run"]) {
+      await push(ctx, config, target.label, url, { dryRun: true });
+      return;
+    }
     const confirmed = args.confirm === undefined ? undefined : targetOf(config, args.confirm).label;
     await confirmName(target.label, confirmed);
-    await push(ctx, config, target.label, sshRemote(target.owner, target.name));
+    await push(ctx, config, target.label, url);
   }),
 });
 
