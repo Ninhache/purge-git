@@ -329,7 +329,8 @@ const pushCommand = defineCommand({
         `Warning: ${target.owner} is an organization. Every other member's clone of ${target.name} will stop matching: tell them to clone it again.`,
       );
     }
-    await confirmName(target.label, args.confirm);
+    const confirmed = args.confirm === undefined ? undefined : targetOf(config, args.confirm).label;
+    await confirmName(target.label, confirmed);
     await push(ctx, config, target.label, sshRemote(target.owner, target.name));
   }),
 });
