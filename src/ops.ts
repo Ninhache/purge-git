@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Config } from "./config";
+import { type Config, oldLabel } from "./config";
 import { EXIT_REMAINING, PurgeError } from "./errors";
 import type { Run } from "./exec";
 import {
@@ -170,7 +170,11 @@ export function report(
     const entry = result.emails[email];
     return entry ? `${entry.author}/${entry.committer}/${entry.message}` : "0/0/0";
   };
-  const rows = emails.map((email) => [email, count(before, email), count(after, email)]);
+  const rows = emails.map((email) => [
+    oldLabel(config.oldEmails, email),
+    count(before, email),
+    count(after, email),
+  ]);
   const lines = [
     `${repo}: ${before.matching} of ${before.commits} commits and ${before.matchingTags} tags used an old address or an AI line.`,
     table(["email (author/committer/message)", "before", "after"], rows),

@@ -41,6 +41,14 @@ describe("dry run", () => {
     expect(logs.join("\n")).toMatch(/Proof: no old address left/);
   });
 
+  it("should name old addresses by number when it prints the report", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    const output = logs.join("\n").toLowerCase();
+    for (const old of OLD) expect(output).not.toContain(old);
+    expect(output).toMatch(/old address #1 +\S+ +0\/0\/0/);
+    expect(output).toContain(IDENTITY.email);
+  });
+
   it("keeps the cache private", async () => {
     await dryRun(ctx, config, "repo", remote);
     const paths = repoPaths(ctx.cache, "repo");

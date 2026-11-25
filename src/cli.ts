@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline/promises";
 import { defineCommand, runMain } from "citty";
-import { type Config, configState, loadConfig, writeConfig, writeTemplate } from "./config";
+import {
+  type Config,
+  configState,
+  loadConfig,
+  oldLabel,
+  writeConfig,
+  writeTemplate,
+} from "./config";
 import { EXIT_ERROR, EXIT_REMAINING, PurgeError } from "./errors";
 import { run } from "./exec";
 import { filterRepoVersion, scan } from "./git";
@@ -78,7 +85,7 @@ async function searchAll(config: Config) {
   for (const email of config.oldEmails) {
     for (const field of FIELDS) {
       const hits = await searchCommits(run, field, email, sleep);
-      totals.push([email, field, String(hits.total)]);
+      totals.push([oldLabel(config.oldEmails, email), field, String(hits.total)]);
       for (const [name, count] of Object.entries(hits.byRepo)) {
         byRepo[name] = (byRepo[name] ?? 0) + count;
       }

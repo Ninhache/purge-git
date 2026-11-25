@@ -81,3 +81,8 @@ export async function writeTemplate(path: string): Promise<boolean> {
   await writeFile(path, `${JSON.stringify(TEMPLATE, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   return true;
 }
+
+export function oldLabel(oldEmails: string[], email: string): string {
+  const index = oldEmails.findIndex((old) => old.toLowerCase() === email.toLowerCase());
+  return index === -1 ? email : `old address #${index + 1}`;
+}

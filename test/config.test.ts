@@ -2,7 +2,7 @@ import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isRepoName, loadConfig, TEMPLATE, writeTemplate } from "../src/config";
+import { isRepoName, loadConfig, oldLabel, TEMPLATE, writeTemplate } from "../src/config";
 
 const valid = {
   owner: "me",
@@ -52,6 +52,14 @@ describe("config", () => {
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(await writeTemplate(path)).toBe(false);
     expect(TEMPLATE.oldEmails[0]).toMatch(/@example\.com$/);
+  });
+
+  it("should label an old address by its place in the config when masking", () => {
+    expect(oldLabel(["a@example.com", "b@example.com"], "B@Example.com")).toBe("old address #2");
+  });
+
+  it("should keep an address that is not an old one when masking", () => {
+    expect(oldLabel(["a@example.com"], "c@example.com")).toBe("c@example.com");
   });
 
   it("only accepts plain repository names", () => {
