@@ -24,6 +24,7 @@ import {
   scan,
 } from "./git";
 import { inventoryFile, type RepoPaths, repoPaths } from "./paths";
+import { lineMatchers, stripPatterns } from "./strip";
 import { table } from "./table";
 
 export interface Context {
@@ -102,9 +103,11 @@ export async function dryRun(
   const paths = repoPaths(ctx.cache, repo);
   await freshClone(ctx, repo, url, "mirror");
   const preRefs = await localRefs(ctx.run, paths.mirror);
-  const before = await scan(ctx.run, paths.mirror, config.oldEmails);
+  const patterns = stripPatterns(config);
+  const matchers = lineMatchers(patterns);
+  const before = await scan(ctx.run, paths.mirror, config.oldEmails, matchers);
   if (before.matching === 0 && before.matchingTags === 0) {
-    ctx.log(`${repo}: no commit or tag uses an old address. Nothing to rewrite.`);
+    ctx.log(`${repo}: no commit or tag uses an old address or an AI line. Nothing to rewrite.`);
     return { before, left: 0 };
   }
   const at = new Date().toISOString();
@@ -113,8 +116,8 @@ export async function dryRun(
   await writeFile(paths.messages, messagesFile(config.identity.email, config.oldEmails), {
     mode: 0o600,
   });
-  await filterRepo(ctx.run, paths.mirror, paths.mailmap, paths.messages);
-  const after = await scan(ctx.run, paths.mirror, config.oldEmails);
+  await filterRepo(ctx.run, paths.mirror, paths.mailmap, paths.messages, patterns);
+  const after = await scan(ctx.run, paths.mirror, config.oldEmails, matchers);
   const postRefs = await localRefs(ctx.run, paths.mirror);
   const left = remaining(after, config.oldEmails);
   const marker: Marker = {
@@ -160,12 +163,13 @@ export function report(
   };
   const rows = emails.map((email) => [email, count(before, email), count(after, email)]);
   const lines = [
-    `${repo}: ${before.matching} of ${before.commits} commits and ${before.matchingTags} tags used an old address.`,
+    `${repo}: ${before.matching} of ${before.commits} commits and ${before.matchingTags} tags used an old address or an AI line.`,
     table(["email (author/committer/message)", "before", "after"], rows),
+    `AI lines in messages: ${before.lines} before, ${after.lines} after.`,
     `Signed commits losing their signature: ${before.signedLost}. Signed tags: ${before.signedTags}.`,
     left === 0
-      ? "Proof: no old address left in authors, committers, commit messages, taggers or tag messages."
-      : `Proof FAILED: ${left} occurrences of an old address are left.`,
+      ? "Proof: no old address left in authors, committers, commit messages, taggers or tag messages, and no AI line left."
+      : `Proof FAILED: ${left} occurrences of an old address or an AI line are left.`,
   ];
   return lines.join("\n");
 }
@@ -206,10 +210,16 @@ export async function push(
   if (!sameRefs(local, marker.postRefs)) {
     throw new PurgeError(`${repo}: the rewritten clone changed since the dry run. Run it again.`);
   }
-  const left = remaining(await scan(ctx.run, paths.mirror, config.oldEmails), config.oldEmails);
+  const check = await scan(
+    ctx.run,
+    paths.mirror,
+    config.oldEmails,
+    lineMatchers(stripPatterns(config)),
+  );
+  const left = remaining(check, config.oldEmails);
   if (left !== 0) {
     throw new PurgeError(
-      `${repo}: ${left} old addresses found in the clone. Nothing pushed.`,
+      `${repo}: ${left} old addresses or AI lines found in the clone. Nothing pushed.`,
       EXIT_REMAINING,
     );
   }

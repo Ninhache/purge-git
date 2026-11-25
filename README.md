@@ -43,6 +43,11 @@ read it. Without `orgs`, every organization you belong to is included, with the 
 `"orgs": ["your-org"]` limits it to those, and `"orgs": []` leaves them all out. `init` writes the list only when
 you untick one.
 
+Lines that tools add to commit messages are removed too: `Claude-Session:` lines, `Co-Authored-By:` lines naming
+an AI tool (Claude, Copilot, Cursor, Codex, Gemini…) and `Generated with Claude Code`. The subject line is never
+touched. `"stripLines": ["^Internal:", "@ai"]` sets your own patterns (case-insensitive regexes, matched anywhere in
+a line), `"@ai"` keeps the built-in ones, and `"stripLines": []` turns it off.
+
 An org repo is named `org/name` in every command (`purge-git dry-run your-org/app`); your own repos keep their
 bare name. Pushing one rewrites history every other member shares: they all have to clone it again.
 

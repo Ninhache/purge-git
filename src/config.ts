@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 import { PurgeError } from "./errors";
+import { isLinePattern } from "./strip";
 
 const REPO_NAME = /^[A-Za-z0-9._-]+$/;
 
@@ -13,6 +14,9 @@ export const configSchema = z.object({
   }),
   oldEmails: z.array(z.email()).min(1),
   orgs: z.array(z.string().regex(REPO_NAME)).optional(),
+  stripLines: z
+    .array(z.string().min(1).refine(isLinePattern, { message: "not a valid regular expression" }))
+    .optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

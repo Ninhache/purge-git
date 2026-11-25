@@ -1,4 +1,5 @@
 import { type Run, runOk } from "./exec";
+import { messageCallback, strippable } from "./strip";
 
 export type Refs = Record<string, string>;
 
@@ -95,12 +96,18 @@ export interface Scan {
   tags: number;
   matchingTags: number;
   signedTags: number;
+  lines: number;
 }
 
 const FIELD = "\u0000";
 const RECORD = "\u001e";
 
-export async function scan(runner: Run, dir: string, oldEmails: string[]): Promise<Scan> {
+export async function scan(
+  runner: Run,
+  dir: string,
+  oldEmails: string[],
+  strip: RegExp[] = [],
+): Promise<Scan> {
   const olds = oldEmails.map((email) => email.toLowerCase());
   const emails: Record<string, EmailCount> = {};
   const bump = (email: string, key: keyof EmailCount) => {
@@ -115,6 +122,7 @@ export async function scan(runner: Run, dir: string, oldEmails: string[]): Promi
     tags: 0,
     matchingTags: 0,
     signedTags: 0,
+    lines: 0,
   };
   for (const email of olds) emails[email] = { author: 0, committer: 0, message: 0 };
 
@@ -148,6 +156,9 @@ export async function scan(runner: Run, dir: string, oldEmails: string[]): Promi
         }
       }
       if (olds.includes(ae) || olds.includes(ce)) matches = true;
+      const lines = strippable(body, strip);
+      result.lines += lines;
+      if (lines > 0) matches = true;
       if (matches) result.matching += 1;
       const inherits = parents.split(" ").some((parent) => rewritten.has(parent));
       if (matches || inherits) {
@@ -172,7 +183,9 @@ export async function scan(runner: Run, dir: string, oldEmails: string[]): Promi
     result.tags += 1;
     if (type !== "tag") continue;
     const text = `${tagger} ${contents}`.toLowerCase();
-    const matches = olds.some((old) => text.includes(old));
+    const lines = strippable(contents, strip);
+    result.lines += lines;
+    const matches = lines > 0 || olds.some((old) => text.includes(old));
     if (matches) result.matchingTags += 1;
     if (signature.trim() !== "") result.signedTags += 1;
   }
@@ -184,7 +197,9 @@ export function remaining(result: Scan, oldEmails: string[]): number {
     oldEmails.reduce((sum, email) => {
       const count = result.emails[email.toLowerCase()];
       return sum + (count ? count.author + count.committer + count.message : 0);
-    }, 0) + result.matchingTags
+    }, 0) +
+    result.matchingTags +
+    result.lines
   );
 }
 
@@ -206,7 +221,9 @@ export async function filterRepo(
   dir: string,
   mailmap: string,
   messages: string,
+  strip: string[] = [],
 ): Promise<void> {
+  const callback = strip.length > 0 ? ["--message-callback", messageCallback(strip)] : [];
   await runOk(runner, "git", [
     "-C",
     dir,
@@ -216,6 +233,7 @@ export async function filterRepo(
     mailmap,
     "--replace-message",
     messages,
+    ...callback,
   ]);
 }
 
