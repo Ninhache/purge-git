@@ -9,6 +9,7 @@ export interface RunResult {
 export interface RunOptions {
   cwd?: string;
   input?: string;
+  env?: Record<string, string>;
 }
 
 export type Run = (command: string, args: string[], options?: RunOptions) => Promise<RunResult>;
@@ -17,7 +18,7 @@ export const run: Run = (command, args, options = {}) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" },
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", ...options.env },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const out: Buffer[] = [];

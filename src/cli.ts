@@ -256,6 +256,10 @@ const dryRunCommand = defineCommand({
       description:
         "Repository name, org/name for an org repo (omit to pick from the last inventory)",
     },
+    sign: {
+      type: "boolean",
+      description: "Sign the rewritten commits you committed, with your git signing key",
+    },
   },
   run: guarded(async ({ args }) => {
     const { ctx, config } = await setup();
@@ -270,6 +274,7 @@ const dryRunCommand = defineCommand({
           config,
           target.label,
           sshRemote(target.owner, target.name),
+          { sign: args.sign },
         );
         if (result.left > 0) {
           failed.push(name);

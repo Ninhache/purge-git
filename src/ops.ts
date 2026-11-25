@@ -24,6 +24,7 @@ import {
   scan,
 } from "./git";
 import { inventoryFile, type RepoPaths, repoPaths } from "./paths";
+import { type SignResult, signMine, unsignedMine } from "./sign";
 import { lineMatchers, stripPatterns } from "./strip";
 import { table } from "./table";
 
@@ -41,6 +42,7 @@ export interface Marker {
   backup: string;
   before: Scan;
   after: Scan;
+  signed?: SignResult;
   passed: boolean;
   at: string;
 }
@@ -99,6 +101,7 @@ export async function dryRun(
   config: Config,
   repo: string,
   url: string,
+  options: { sign?: boolean } = {},
 ): Promise<DryRunResult> {
   const paths = repoPaths(ctx.cache, repo);
   await freshClone(ctx, repo, url, "mirror");
@@ -117,9 +120,13 @@ export async function dryRun(
     mode: 0o600,
   });
   await filterRepo(ctx.run, paths.mirror, paths.mailmap, paths.messages, patterns);
+  const signed = options.sign
+    ? await signMine(ctx.run, paths.mirror, config.identity.email)
+    : undefined;
   const after = await scan(ctx.run, paths.mirror, config.oldEmails, matchers);
   const postRefs = await localRefs(ctx.run, paths.mirror);
-  const left = remaining(after, config.oldEmails);
+  const unsigned = signed ? await unsignedMine(ctx.run, paths.mirror, config.identity.email) : 0;
+  const left = remaining(after, config.oldEmails) + unsigned;
   const marker: Marker = {
     repo,
     url,
@@ -128,11 +135,13 @@ export async function dryRun(
     backup,
     before,
     after,
+    signed,
     passed: left === 0,
     at,
   };
   await writeFile(paths.marker, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
   ctx.log(report(repo, config, before, after, left));
+  if (signed) ctx.log(signReport(signed, unsigned));
   return { before, after, left };
 }
 
@@ -170,6 +179,16 @@ export function report(
     left === 0
       ? "Proof: no old address left in authors, committers, commit messages, taggers or tag messages, and no AI line left."
       : `Proof FAILED: ${left} occurrences of an old address or an AI line are left.`,
+  ];
+  return lines.join("\n");
+}
+
+export function signReport(signed: SignResult, unsigned: number): string {
+  const lines = [
+    `Signed ${signed.signed} of your commits; ${signed.recreated - signed.signed} other commits were re-parented and ${signed.othersLost} of them lose a signature. Tags moved: ${signed.tagsMoved}.`,
+    unsigned === 0
+      ? "Proof: every commit you committed carries a good signature."
+      : `Proof FAILED: ${unsigned} of your commits have no good signature.`,
   ];
   return lines.join("\n");
 }
@@ -220,6 +239,12 @@ export async function push(
   if (left !== 0) {
     throw new PurgeError(
       `${repo}: ${left} old addresses or AI lines found in the clone. Nothing pushed.`,
+      EXIT_REMAINING,
+    );
+  }
+  if (marker.signed && (await unsignedMine(ctx.run, paths.mirror, config.identity.email)) > 0) {
+    throw new PurgeError(
+      `${repo}: some of your commits lost their signature since the dry run. Run it again. Nothing pushed.`,
       EXIT_REMAINING,
     );
   }
