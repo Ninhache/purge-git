@@ -26,6 +26,7 @@ import {
 } from "./ops";
 import { cacheRoot, configPath, sshRemote } from "./paths";
 import { confirmLocal, pick, pickEmails, pickOrgs } from "./prompt";
+import { lineMatchers, stripPatterns } from "./strip";
 import { table } from "./table";
 import { labelOf, owners, type Target, targetOf, withOrgs } from "./target";
 import { CLI_VERSION } from "./version";
@@ -147,6 +148,7 @@ const inventory = defineCommand({
     console.log(table(["email", "search", "commits found"], totals));
     console.log("");
     const rows: InventoryRow[] = [];
+    const matchers = lineMatchers(stripPatterns(config));
     let clean = 0;
     const failed: string[] = [];
     for (const item of repos) {
@@ -158,7 +160,7 @@ const inventory = defineCommand({
           sshRemote(item.owner, item.name),
           "inventory",
         );
-        const result = await scan(run, clone, config.oldEmails);
+        const result = await scan(run, clone, config.oldEmails, matchers);
         if (result.matching === 0 && result.matchingTags === 0) {
           clean += 1;
           continue;

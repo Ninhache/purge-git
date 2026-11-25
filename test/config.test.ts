@@ -25,6 +25,12 @@ describe("config", () => {
     await expect(loadConfig(file({ ...valid, orgs: ["a/b"] }, 0o600))).rejects.toThrow(/orgs/);
   });
 
+  it("should refuse a stripLines entry that is not a regex when loading", async () => {
+    await expect(loadConfig(file({ ...valid, stripLines: ["(unclosed"] }, 0o600))).rejects.toThrow(
+      /stripLines/,
+    );
+  });
+
   it("refuses a config other users can read", async () => {
     await expect(loadConfig(file(valid, 0o644))).rejects.toThrow(/readable by others/);
   });
