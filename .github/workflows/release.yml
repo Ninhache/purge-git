@@ -35,6 +35,7 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm pack
+      - run: npm publish --provenance --access public
       - run: pnpm scan-emails dist ./*.tgz
       - run: npm install -g npm@latest
       - run: npm publish --access public
