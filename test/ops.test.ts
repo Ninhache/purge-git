@@ -106,7 +106,15 @@ describe("push", () => {
       git(remote, ["branch", "--format=%(refname:short)"]).split("\n").filter(Boolean).sort(),
     ).toEqual(["feature", "main"]);
     expect(git(remote, ["tag"]).trim()).toBe("v1");
-    await expect(push(ctx, config, "repo", remote)).rejects.toThrow(/no verified dry run/);
+  });
+
+  it("should say the repo is already pushed when pushing it again", async () => {
+    await dryRun(ctx, config, "repo", remote);
+    await push(ctx, config, "repo", remote);
+    const remoteBefore = git(remote, ["for-each-ref"]);
+    await push(ctx, config, "repo", remote);
+    expect(logs.at(-1)).toMatch(/already pushed .*Nothing to do/);
+    expect(git(remote, ["for-each-ref"])).toBe(remoteBefore);
   });
 
   it("leaves refs/pull alone and does not count them", async () => {
