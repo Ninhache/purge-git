@@ -214,6 +214,12 @@ export async function push(
   options: { dryRun?: boolean } = {},
 ): Promise<void> {
   const paths = repoPaths(ctx.cache, repo);
+  const pushed = join(paths.root, "pushed.json");
+  if (!existsSync(paths.marker) && existsSync(pushed)) {
+    const last = JSON.parse(await readFile(pushed, "utf8")) as Marker;
+    ctx.log(`${repo}: already pushed (dry run of ${last.at}). Nothing to do.`);
+    return;
+  }
   const marker = await readMarker(ctx, repo);
   if (!marker.passed) {
     throw new PurgeError(
@@ -274,7 +280,7 @@ export async function push(
       `${repo}: ${reasons[refusalOf(outcome.output)]} Refs that were not refused may already be pushed: running push again is safe.\n${outcome.output.trim()}`,
     );
   }
-  await rename(paths.marker, `${paths.root}/pushed.json`);
+  await rename(paths.marker, pushed);
   ctx.log(`${repo}: pushed every branch and tag.`);
 }
 
