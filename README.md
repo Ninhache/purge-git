@@ -61,6 +61,7 @@ bare name. Pushing one rewrites history every other member shares: they all have
 | `purge-git verify`                       | Runs the GitHub search again and reports what is left.                                                                                                                                                                                                                                                                                                        |
 
 Clones live in `~/.cache/purge-git` (mode 0700; `PURGE_GIT_CACHE` overrides it).
+Reports name old addresses by their place in `oldEmails` (`old address #1`, …), so their output can be shared.
 Exit codes: `0` ok, `1` error, `2` old addresses still present.
 
 ## Before you push
